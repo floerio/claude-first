@@ -1,6 +1,6 @@
 # Find Image Groups
 
-A Python tool to find and organize similar Fuji RAW images using perceptual hashing and intelligent clustering.
+A Python tool to find and organize similar Fuji RAW images using perceptual hashing and intelligent clustering. XXX
 
 ## Features
 
