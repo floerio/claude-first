@@ -166,13 +166,6 @@ Group 2: 2 similar image(s)
 - `Q` or `ESC` - Close window
 - Click navigation buttons
 
-**Grid View Brightness Control:**
-- **Y** - Decrease brightness of all thumbnails
-- **X** - Increase brightness of all thumbnails
-- **Space** - Reset grid brightness to 100%
-- Use on-screen buttons (☀−, ☀+, ☀↻) as alternatives
-- Perfect for adjusting overall brightness before zooming in
-
 **Image Zoom/Inspection:**
 - **Click any image** to open fullscreen lightbox
 - **Mouse wheel** - Zoom in/out
