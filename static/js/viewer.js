@@ -9,6 +9,7 @@ let focusedImageIndex = 0;
 let lightboxOpen = false;
 let lightboxImageIndex = 0;
 let zoomLevel = 1;
+let brightnessLevel = 100;
 let isPanning = false;
 let panStartX = 0;
 let panStartY = 0;
@@ -354,6 +355,16 @@ function setupEventListeners() {
                     e.preventDefault();
                     fitToScreen();
                     break;
+                case ',':
+                case '<':
+                    e.preventDefault();
+                    setBrightness(brightnessLevel - 10);
+                    break;
+                case '.':
+                case '>':
+                    e.preventDefault();
+                    setBrightness(brightnessLevel + 10);
+                    break;
                 case '1':
                 case '2':
                 case '3':
@@ -432,6 +443,7 @@ function openLightbox(imageIndex) {
     lightboxOpen = true;
     lightboxImageIndex = imageIndex;
     zoomLevel = 1;
+    brightnessLevel = 100;
     panOffsetX = 0;
     panOffsetY = 0;
 
@@ -463,6 +475,7 @@ async function showLightboxImage() {
     // Update image
     lightboxImg.src = `/api/image/${currentCluster}/${lightboxImageIndex}`;
     lightboxImg.style.transform = `scale(${zoomLevel}) translate(${panOffsetX}px, ${panOffsetY}px)`;
+    lightboxImg.style.filter = `brightness(${brightnessLevel}%)`;
 
     // Update filename
     filenameElem.textContent = image.filename;
@@ -472,6 +485,9 @@ async function showLightboxImage() {
 
     // Update zoom level display
     document.querySelector('.lightbox-zoom-level').textContent = `${Math.round(zoomLevel * 100)}%`;
+
+    // Update brightness level display
+    document.querySelector('.lightbox-brightness-level').textContent = `${brightnessLevel}%`;
 
     // Update color picker
     colorPickerElem.innerHTML = '';
@@ -551,9 +567,17 @@ function setZoom(newZoom) {
 
 function fitToScreen() {
     zoomLevel = 1;
+    brightnessLevel = 100;
     panOffsetX = 0;
     panOffsetY = 0;
     showLightboxImage();
+}
+
+function setBrightness(newBrightness) {
+    brightnessLevel = Math.max(20, Math.min(200, newBrightness));
+    const lightboxImg = document.getElementById('lightboxImage');
+    lightboxImg.style.filter = `brightness(${brightnessLevel}%)`;
+    document.querySelector('.lightbox-brightness-level').textContent = `${brightnessLevel}%`;
 }
 
 function lightboxPrevImage() {
@@ -562,6 +586,7 @@ function lightboxPrevImage() {
 
     lightboxImageIndex = (lightboxImageIndex - 1 + cluster.images.length) % cluster.images.length;
     zoomLevel = 1;
+    brightnessLevel = 100;
     panOffsetX = 0;
     panOffsetY = 0;
     showLightboxImage();
@@ -573,6 +598,7 @@ function lightboxNextImage() {
 
     lightboxImageIndex = (lightboxImageIndex + 1) % cluster.images.length;
     zoomLevel = 1;
+    brightnessLevel = 100;
     panOffsetX = 0;
     panOffsetY = 0;
     showLightboxImage();
@@ -581,6 +607,10 @@ function lightboxNextImage() {
 function setupLightboxEventListeners() {
     const lightboxImg = document.getElementById('lightboxImage');
     const container = document.querySelector('.lightbox-image-container');
+
+    // Brightness buttons
+    document.getElementById('brightnessUp').onclick = () => setBrightness(brightnessLevel + 10);
+    document.getElementById('brightnessDown').onclick = () => setBrightness(brightnessLevel - 10);
 
     // Zoom buttons
     document.getElementById('zoomIn').onclick = () => setZoom(zoomLevel * 1.2);

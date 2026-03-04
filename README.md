@@ -167,13 +167,15 @@ Group 2: 2 similar image(s)
 - **Click any image** to open fullscreen lightbox
 - **Mouse wheel** - Zoom in/out
 - **+/-** keys - Zoom in/out
-- **Space** - Fit to screen
+- **, / .** keys - Decrease/increase brightness (20%-200%)
+- **Space** - Reset zoom and brightness to 100%
 - **Click and drag** - Pan when zoomed
 - **Arrow keys** - Navigate between images (or pan when zoomed with Shift/Ctrl)
 - **ESC** - Close lightbox
 - **1-8 keys** - Tag color while in lightbox view
 - **EXIF data displayed**: ISO, shutter speed, aperture, focal length, exposure compensation
-- Perfect for inspecting fine details to choose between similar shots
+- **Brightness control**: Perfect for checking shadow detail and highlight clipping
+- Inspect fine details to choose between similar shots
 
 **Color Tagging (Fast Workflow!):**
 - **Keyboard Shortcuts**: Press `1-8` to tag the focused image

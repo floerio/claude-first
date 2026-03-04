@@ -337,7 +337,8 @@ main {
     align-items: center;
 }
 
-.lightbox-zoom-level {
+.lightbox-zoom-level,
+.lightbox-brightness-level {
     min-width: 60px;
     text-align: center;
     color: #e0e0e0;
