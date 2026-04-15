@@ -1,12 +1,14 @@
 # Find Image Groups
 
-A Python tool to find and organize similar Fuji RAW images using perceptual hashing and intelligent clustering. 
+A Python tool to find and organize similar images using DINOv2 deep learning embeddings and intelligent clustering.
 
 ## Features
 
-- Processes Fuji RAW (.RAF) files directly using optimized Python libraries
-- Uses perceptual hashing for fast, effective similarity detection
+- **Multi-format support**: RAW (RAF, NEF, ARW, CR2, CR3, etc.) and standard (JPG, PNG, TIFF, BMP)
+- **DINOv2 AI-powered similarity detection**: Semantic understanding of image content
+- **GPU acceleration**: CUDA and Apple Silicon MPS support
 - **Automatically clusters similar images into groups**
+- **Two clustering modes**: Transitive (loose) or Direct-only (tight)
 - **Hybrid architecture: Python backend + Web frontend**
 - **Interactive web-based viewer with smooth navigation**
 - Alternative matplotlib viewer for offline use
@@ -37,61 +39,68 @@ Make sure your virtual environment is activated:
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-Basic usage:
+Basic usage (uses default directory `/Users/ofloericke/images`):
 ```bash
-python fuji_similarity.py /path/to/photos
+python find-image-groups.py --web-viewer
 ```
 
-With custom threshold (lower = more strict):
+With custom directory:
 ```bash
-python fuji_similarity.py /path/to/photos --threshold 5
+python find-image-groups.py /path/to/photos --web-viewer
 ```
 
-With higher precision:
+With custom threshold (higher = more strict, range 0.0-1.0):
 ```bash
-python fuji_similarity.py /path/to/photos --hash-size 16 --threshold 8
+python find-image-groups.py /path/to/photos --threshold 0.90 --web-viewer
+```
+
+With direct-only clustering (tighter groups):
+```bash
+python find-image-groups.py /path/to/photos --direct-only --web-viewer
 ```
 
 Show individual pairs instead of clusters:
 ```bash
-python fuji_similarity.py /path/to/photos --no-cluster
+python find-image-groups.py /path/to/photos --no-cluster
 ```
 
 **Launch web-based viewer (recommended):**
 ```bash
-python fuji_similarity.py /path/to/photos --web-viewer
+python find-image-groups.py /path/to/photos --web-viewer
 ```
 
 This starts a local web server and opens a browser interface. Better performance and smoother UI than the matplotlib viewer.
 
 **Launch matplotlib viewer (offline):**
 ```bash
-python fuji_similarity.py /path/to/photos --viewer
+python find-image-groups.py /path/to/photos --viewer
 ```
 
 Both viewers display images in each group side-by-side and support keyboard navigation.
 
 ### Options
 
-- `directory` - Directory containing Fuji RAF files (required)
-- `-t, --threshold` - Similarity threshold (0-64, default: 10). Lower values require more similarity.
-- `-s, --hash-size` - Hash size for comparison (default: 8). Larger values give more precision but take longer.
+- `directory` - Directory containing image files (optional, default: `/Users/ofloericke/images`)
+- `-t, --threshold` - Cosine similarity threshold (0.0-1.0, default: 0.85). Higher values require more similarity.
+- `--max-size` - Maximum image size for DINOv2 (default: 512). Smaller = faster.
+- `--model` - DINOv2 model variant (dinov2-small/base/large/giant, default: base).
 - `--no-cluster` - Disable clustering and show individual pairs instead of grouped results.
+- `-do, --direct-only` - Use direct similarity clustering (tighter groups, no transitive).
 - `-w, --web-viewer` - Launch web-based viewer (recommended - better UI and performance).
 - `-v, --viewer` - Launch matplotlib viewer (alternative, works offline).
-- `-p, --port` - Port for web viewer (default: 5000).
-- `--hash-method` - Hash method to use (average, phash, dhash, whash). Default: phash.
-- `--no-cache` - Disable hash caching (recompute all hashes).
-- `--no-parallel` - Disable parallel processing (slower but uses less memory).
-- `--show-ungrouped` - Show images that are not part of any similar group.
+- `-p, --port` - Port for web viewer (default: 5020).
+- `--no-cache` - Disable embedding caching (recompute all embeddings).
+- `--no-parallel` - Disable parallel processing (already disabled by default for GPU).
+- `-ug, --show-ungrouped` - Show images that are not part of any similar group.
 
 ## How It Works
 
-1. **RAW Processing**: Reads RAF files using `rawpy` and converts them to RGB images
-2. **Perceptual Hashing**: Computes an average hash for each image that captures its visual structure
-3. **Comparison**: Compares all image pairs using Hamming distance between their hashes
-4. **Clustering**: Groups similar images together using union-find algorithm (transitive similarity)
-5. **Results**: Reports groups of similar images with detailed similarity information
+1. **Image Loading**: Reads RAW files (RAF, NEF, ARW, CR2, etc.) using `rawpy` or standard images (JPG, PNG) using PIL
+2. **DINOv2 Embeddings**: Computes deep learning embeddings that capture semantic image content
+3. **GPU Acceleration**: Uses CUDA or Apple Silicon MPS if available for faster processing
+4. **Comparison**: Compares all image pairs using cosine similarity between embeddings
+5. **Clustering**: Groups similar images using union-find (transitive) or direct similarity algorithm
+6. **Results**: Reports groups of similar images with detailed similarity information
 
 ## Use Cases
 
@@ -258,36 +267,39 @@ python fuji_similarity.py /path/to/photos --viewer --show-ungrouped
 ## Requirements
 
 - Python 3.8+
-- rawpy (for reading RAF files - wraps libraw C++ library)
+- rawpy (for reading RAW files - wraps libraw C++ library)
 - Pillow (image processing)
-- imagehash (perceptual hashing)
+- torch (PyTorch for DINOv2 and GPU acceleration)
+- torchvision (required by transformers)
+- transformers (Hugging Face library for DINOv2 model)
+- scikit-learn (cosine similarity computation)
 - numpy (array operations)
 - tqdm (progress bars)
 - flask (web server for hybrid viewer)
 - matplotlib (offline matplotlib viewer)
 
-## Hash Methods Explained
+## DINOv2 Models Explained
 
-**Different hash algorithms for different use cases:**
+**Different model sizes for different use cases:**
 
-- **`phash` (default)**: Perceptual hash - robust against lighting/color changes. Best for general similarity detection.
-- **`average`: Fastest method - good for exact duplicates. Less robust to image variations.
-- **`dhash`**: Difference hash - sensitive to horizontal gradients. Good for detecting resized versions.
-- **`whash`**: Wavelet hash - most robust but slower. Best for complex images with many details.
+- **`dinov2-small`**: Fastest, uses least memory. Good for quick processing of large collections.
+- **`dinov2-base` (default)**: Balanced speed and accuracy. Best for most use cases.
+- **`dinov2-large`**: Higher accuracy, slower processing. Better semantic understanding.
+- **`dinov2-giant`**: Most accurate but slowest and requires more GPU memory.
 
 **When to use which:**
-- **Exact duplicates**: `average` (fastest)
-- **Similar compositions**: `phash` (default, balanced)
-- **Resized versions**: `dhash` (gradient-sensitive)
-- **Complex scenes**: `whash` (most robust)
+- **Large collections (1000+ images)**: `dinov2-small` (fastest)
+- **General use**: `dinov2-base` (default, balanced)
+- **Best accuracy**: `dinov2-large` (more precise)
+- **Research/maximum quality**: `dinov2-giant` (if you have powerful GPU)
 
 **Example usage:**
 ```bash
-# Use dhash for resized image detection
-python fuji_similarity.py /path/to/photos --hash-method dhash
+# Use larger model for better accuracy
+python find-image-groups.py /path/to/photos --model facebook/dinov2-large
 
-# Use whash for complex scenes
-python fuji_similarity.py /path/to/photos --hash-method whash --hash-size 16
+# Use smaller model for speed
+python find-image-groups.py /path/to/photos --model facebook/dinov2-small --max-size 384
 ```
 
 ## Ungrouped Images Feature
@@ -324,18 +336,18 @@ python fuji_similarity.py /path/to/photos --viewer --show-ungrouped
 
 ## Performance Features
 
-**Hash Caching:**
-- First run: Computes hashes for all RAF files
-- Subsequent runs: Loads hashes from `.fuji_similarity_cache.json`
+**Embedding Caching:**
+- First run: Computes DINOv2 embeddings for all image files
+- Subsequent runs: Loads embeddings from `.fuji_similarity_dinov2_cache.json`
 - Only reprocesses files that have changed (checks file size + modification time)
-- Instant re-runs with different thresholds
+- Instant re-runs with different thresholds or clustering modes
 - Cache auto-updates when files are added/changed
 
-**Parallel Processing:**
-- Uses all CPU cores to process multiple RAF files simultaneously
-- 4-8x faster on multi-core systems
-- Automatically scales to available cores
-- Can be disabled with `--no-parallel` if needed
+**GPU Acceleration:**
+- Automatically uses CUDA (NVIDIA) or MPS (Apple Silicon) if available
+- Significantly faster than CPU-only processing
+- Falls back to CPU if no GPU detected
+- Sequential processing optimized for GPU workloads
 
 **Auto-open Browser:**
 - Web viewer automatically opens in your default browser
@@ -379,16 +391,16 @@ If brightness control doesn't work, try:
 - JavaScript would be 5-10x slower for RAW processing
 
 **Technical Details:**
-- The tool uses half-size RAW processing for speed while maintaining accuracy for similarity detection
-- Perceptual hashing is resistant to minor edits like resizing, slight color adjustments, and compression
-- Processing time depends on the number of files and hash size setting
-- Web viewer converts RAW to JPEG for browser display (max 1920px wide)
-- Cache file stores hash strings with file signatures for validation
+- The tool uses half-size RAW processing and image resizing for speed while maintaining accuracy
+- DINOv2 embeddings capture semantic similarity, not just pixel-level similarity
+- Processing time depends on the number of files, image size, and GPU availability
+- Web viewer converts images to JPEG for browser display (max 1920px wide)
+- Cache file stores embeddings with file signatures for validation
 
 **Example Workflow:**
 ```bash
-# First run: Processes 100 RAF files (takes ~3 minutes on 8-core CPU)
-python fuji_similarity.py /path/to/photos --web-viewer
+# First run: Processes 100 image files (takes ~2-3 minutes with GPU)
+python find-image-groups.py /path/to/photos --web-viewer --direct-only
 
 # Browser opens automatically
 # Review groups, tag images with keyboard shortcuts (1-8)
@@ -398,7 +410,10 @@ python fuji_similarity.py /path/to/photos --web-viewer
 # Tag colors even while in zoom view
 
 # Second run with different threshold: Instant! (uses cache)
-python fuji_similarity.py /path/to/photos --web-viewer --threshold 5
+python find-image-groups.py /path/to/photos --web-viewer --threshold 0.92
+
+# Third run with different clustering mode: Also instant!
+python find-image-groups.py /path/to/photos --web-viewer
 
 # Import into Capture One with color tags preserved
 ```

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Web-based viewer for Fuji RAW similarity results.
+Web-based viewer for image similarity results.
 Provides a fast, interactive browser-based interface.
+Supports RAW and standard image formats.
 """
 
 import json
@@ -324,7 +325,7 @@ class WebViewer:
             
             try:
                 # Load and process RAW file
-                img = self.finder.load_raw_file(Path(image_path))
+                img = self.finder.load_image_file(Path(image_path))
                 
                 # Resize for web display (max 1920px wide)
                 max_width = 1920
@@ -556,7 +557,7 @@ class WebViewer:
 
             try:
                 # Load and process RAW file
-                img = self.finder.load_raw_file(Path(image_path))
+                img = self.finder.load_image_file(Path(image_path))
 
                 # Resize for web display (max 1920px wide)
                 max_width = 1920

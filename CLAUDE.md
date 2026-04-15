@@ -34,45 +34,46 @@ source venv/bin/activate
 
 Basic usage (uses default directory: /Users/ofloericke/images):
 ```bash
-python fuji_similarity.py
+python find-image-groups.py
 ```
 
 With custom directory:
 ```bash
-python fuji_similarity.py /path/to/photos
+python find-image-groups.py /path/to/photos
 ```
 
 With custom parameters:
 ```bash
-python fuji_similarity.py /path/to/photos --threshold 0.90 --max-size 768
+python find-image-groups.py /path/to/photos --threshold 0.90 --max-size 768
 ```
 
 With web viewer (recommended):
 ```bash
-python fuji_similarity.py --web-viewer
+python find-image-groups.py --web-viewer
 ```
 
 With matplotlib viewer (offline):
 ```bash
-python fuji_similarity.py --viewer
+python find-image-groups.py --viewer
 ```
 
 ## Architecture
 
 **Core Components:**
-- `fuji_similarity.py` - Main CLI and image processing logic
+- `find-image-groups.py` - Main CLI and image processing logic
 - `web_viewer.py` - Flask web server for hybrid viewer
 - `templates/viewer.html` - Web UI template
 - `static/js/viewer.js` - Client-side JavaScript for navigation
 - `static/css/viewer.css` - Styling
 
-**Python Backend (`fuji_similarity.py`):**
+**Python Backend (`find-image-groups.py`):**
 - `ImageSimilarityFinder` class handles all image processing and comparison logic
-  - `load_raw_file()` - Uses rawpy to process RAF files with half-size rendering and resizing for performance
+  - `load_image_file()` - Uses rawpy for RAW files or PIL for standard images, with resizing for performance
   - `compute_embedding()` - Generates DINOv2 embeddings using transformer model
-  - `process_directory()` - Batch processes all RAF files in a directory (sequential for GPU optimization)
+  - `process_directory()` - Batch processes all image files in a directory (sequential for GPU optimization)
   - `find_similar_images()` - Compares all image pairs using cosine similarity
-  - `cluster_similar_images()` - Groups similar images using union-find algorithm for transitive similarity
+  - `cluster_similar_images()` - Groups similar images using union-find (transitive) or direct similarity algorithm
+  - `cluster_similar_images_direct()` - Direct similarity clustering (no transitive grouping)
   - `print_clustered_results()` - Displays grouped results (default)
   - `print_results()` - Displays individual pairs (legacy mode with --no-cluster)
 - `ClusterViewer` class provides interactive matplotlib-based viewer

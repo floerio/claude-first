@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Find Image Groups - Fuji RAW Similarity Finder
+Find Image Groups - Multi-Format Image Similarity Finder
 
-Compares Fuji RAW files (.RAF) to find similar images using DINOv2 embeddings.
+Compares RAW and standard image files to find similar images using DINOv2 embeddings.
+Supports RAW formats (RAF, NEF, ARW, CR2, CR3, etc.) and standard formats (JPG, PNG, TIFF, BMP).
 Groups similar images and provides interactive viewer with color tagging.
 """
 
@@ -28,7 +29,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 class ImageSimilarityFinder:
-    """Find similar images in a collection of Fuji RAW files using DINOv2."""
+    """Find similar images in a collection of RAW and standard image files using DINOv2."""
 
     def __init__(self, threshold: float = 0.85, use_cache: bool = True, max_size: int = 512, model_name: str = "facebook/dinov2-base", use_transitive: bool = False):
         """
@@ -69,25 +70,38 @@ class ImageSimilarityFinder:
         self.model.eval()
         print("✓ Model loaded and ready")
 
-    def load_raw_file(self, filepath: Path) -> Image.Image:
+    def load_image_file(self, filepath: Path) -> Image.Image:
         """
-        Load a Fuji RAF file and convert to PIL Image.
+        Load a RAW or standard image file and convert to PIL Image.
 
         Args:
-            filepath: Path to the RAF file
+            filepath: Path to the image file (RAW, JPG, PNG, etc.)
 
         Returns:
             PIL Image object (resized for DINOv2 processing)
         """
-        with rawpy.imread(str(filepath)) as raw:
-            # Process RAW to RGB array
-            rgb = raw.postprocess(
-                use_camera_wb=True,
-                half_size=True,  # Faster processing, still good for similarity
-                no_auto_bright=True,
-                output_bps=8
-            )
-        img = Image.fromarray(rgb)
+        # Define RAW file extensions
+        raw_extensions = {'.raf', '.nef', '.nrw', '.arw', '.srf', '.sr2',
+                         '.cr2', '.cr3', '.crw', '.orf', '.pef', '.rw2',
+                         '.dng', '.raw', '.rwl', '.mrw', '.erf', '.3fr',
+                         '.dcr', '.kdc', '.mef', '.mos', '.ptx', '.r3d'}
+
+        if filepath.suffix.lower() in raw_extensions:
+            # Process RAW file with rawpy
+            with rawpy.imread(str(filepath)) as raw:
+                rgb = raw.postprocess(
+                    use_camera_wb=True,
+                    half_size=True,  # Faster processing, still good for similarity
+                    no_auto_bright=True,
+                    output_bps=8
+                )
+            img = Image.fromarray(rgb)
+        else:
+            # Process standard image file (JPG, PNG, etc.)
+            img = Image.open(filepath)
+            # Convert to RGB if needed (e.g., PNG with alpha, grayscale)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
 
         # Resize to max_size for faster DINOv2 processing
         img.thumbnail((self.max_size, self.max_size), Image.Resampling.LANCZOS)
@@ -198,19 +212,32 @@ class ImageSimilarityFinder:
 
     def process_directory(self, directory: Path, parallel: bool = False) -> None:
         """
-        Process all RAF files in a directory and compute their embeddings.
+        Process all image files in a directory and compute their embeddings.
 
         Args:
-            directory: Path to directory containing RAF files
+            directory: Path to directory containing image files
             parallel: Whether to use parallel processing (disabled for DINOv2 - GPU doesn't benefit)
         """
-        raf_files = list(directory.glob("*.RAF")) + list(directory.glob("*.raf"))
+        # Define supported file formats
+        raw_patterns = ['*.raf', '*.RAF', '*.nef', '*.NEF', '*.nrw', '*.NRW',
+                       '*.arw', '*.ARW', '*.srf', '*.SRF', '*.sr2', '*.SR2',
+                       '*.cr2', '*.CR2', '*.cr3', '*.CR3', '*.crw', '*.CRW',
+                       '*.orf', '*.ORF', '*.pef', '*.PEF', '*.rw2', '*.RW2',
+                       '*.dng', '*.DNG', '*.raw', '*.RAW']
+        jpg_patterns = ['*.jpg', '*.JPG', '*.jpeg', '*.JPEG',
+                       '*.png', '*.PNG', '*.tif', '*.TIF',
+                       '*.tiff', '*.TIFF', '*.bmp', '*.BMP']
 
-        if not raf_files:
-            print(f"No RAF files found in {directory}")
+        # Collect all matching files
+        image_files = []
+        for pattern in raw_patterns + jpg_patterns:
+            image_files.extend(directory.glob(pattern))
+
+        if not image_files:
+            print(f"No supported image files found in {directory}")
             return
 
-        print(f"Found {len(raf_files)} RAF files.")
+        print(f"Found {len(image_files)} image files.")
 
         # Load cache
         cache = self.load_cache(directory)
@@ -218,7 +245,7 @@ class ImageSimilarityFinder:
         cached_count = 0
 
         # Check which files need processing
-        for filepath in raf_files:
+        for filepath in image_files:
             filepath_str = str(filepath)
 
             if filepath_str in cache:
@@ -259,16 +286,16 @@ class ImageSimilarityFinder:
 
     def _process_single_file(self, filepath: Path) -> Tuple[str, np.ndarray]:
         """
-        Process a single RAF file.
+        Process a single image file.
 
         Args:
-            filepath: Path to RAF file
+            filepath: Path to image file
 
         Returns:
             Tuple of (filepath_str, embedding)
         """
         try:
-            image = self.load_raw_file(filepath)
+            image = self.load_image_file(filepath)
             embedding = self.compute_embedding(image)
             return (str(filepath), embedding)
         except Exception as e:
@@ -603,7 +630,7 @@ class ClusterViewer:
             PIL Image object
         """
         if filepath not in self.loaded_images:
-            self.loaded_images[filepath] = self.finder.load_raw_file(Path(filepath))
+            self.loaded_images[filepath] = self.finder.load_image_file(Path(filepath))
         return self.loaded_images[filepath]
 
     def show_cluster(self, cluster_idx: int) -> None:
@@ -803,7 +830,7 @@ class ClusterViewer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find similar images in a collection of Fuji RAW files",
+        description="Find similar images in a collection of RAW and standard image files",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -811,6 +838,11 @@ Examples:
   %(prog)s /path/to/photos                    # Use custom directory
   %(prog)s --threshold 0.90 --web-viewer      # Higher threshold with web viewer
   %(prog)s /path/to/photos --model facebook/dinov2-large
+  %(prog)s --direct-only                      # Use direct similarity clustering
+
+Supported formats:
+  RAW: RAF, NEF, ARW, CR2, CR3, ORF, PEF, RW2, DNG, and more
+  Standard: JPG, JPEG, PNG, TIFF, BMP
         """
     )
 
@@ -819,7 +851,7 @@ Examples:
         type=Path,
         nargs='?',
         default=Path("/Users/ofloericke/images"),
-        help="Directory containing Fuji RAF files (default: /Users/ofloericke/images)"
+        help="Directory containing image files (default: /Users/ofloericke/images)"
     )
 
     parser.add_argument(
