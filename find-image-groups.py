@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Set
 from multiprocessing import Pool, cpu_count
 import rawpy
-from PIL import Image
+from PIL import Image, ImageOps
+from io import BytesIO
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 class ImageSimilarityFinder:
     """Find similar images in a collection of RAW and standard image files using DINOv2."""
 
-    def __init__(self, threshold: float = 0.85, use_cache: bool = True, max_size: int = 512, model_name: str = "facebook/dinov2-base", use_transitive: bool = False):
+    def __init__(self, threshold: float = 0.85, use_cache: bool = True, max_size: int = 512, model_name: str = "facebook/dinov2-base", use_transitive: bool = False, use_raw_preview: bool = True):
         """
         Initialize the similarity finder.
 
@@ -41,12 +42,14 @@ class ImageSimilarityFinder:
             max_size: Maximum image size for DINOv2 processing (smaller = faster)
             model_name: DINOv2 model to use (dinov2-small, dinov2-base, dinov2-large, dinov2-giant)
             use_transitive: If True, use transitive clustering. If False, use direct similarity only.
+            use_raw_preview: If True, extract embedded previews from RAW files (10-20x faster)
         """
         self.threshold = threshold
         self.use_cache = use_cache
         self.max_size = max_size
         self.model_name = model_name
         self.use_transitive = use_transitive
+        self.use_raw_preview = use_raw_preview
         self.image_embeddings: Dict[str, np.ndarray] = {}
         self.cache_file = None
 
@@ -87,18 +90,37 @@ class ImageSimilarityFinder:
                          '.dcr', '.kdc', '.mef', '.mos', '.ptx', '.r3d'}
 
         if filepath.suffix.lower() in raw_extensions:
-            # Process RAW file with rawpy
-            with rawpy.imread(str(filepath)) as raw:
-                rgb = raw.postprocess(
-                    use_camera_wb=True,
-                    half_size=True,  # Faster processing, still good for similarity
-                    no_auto_bright=True,
-                    output_bps=8
-                )
-            img = Image.fromarray(rgb)
+            # Process RAW file
+            if self.use_raw_preview:
+                # Try fast preview extraction first
+                try:
+                    with rawpy.imread(str(filepath)) as raw:
+                        thumb = raw.extract_thumb()
+
+                        if thumb.format == rawpy.ThumbFormat.JPEG:
+                            # JPEG thumbnail: decode from bytes
+                            img = Image.open(BytesIO(thumb.data))
+                        else:  # rawpy.ThumbFormat.BITMAP
+                            # Bitmap thumbnail: convert from numpy array
+                            img = Image.fromarray(thumb.data)
+
+                        # Apply EXIF orientation to handle portrait/landscape correctly
+                        img = ImageOps.exif_transpose(img) or img
+
+                except rawpy.LibRawNoThumbnailError:
+                    # No embedded preview available, fallback to full RAW processing
+                    img = self._process_full_raw(filepath)
+                except rawpy.LibRawUnsupportedThumbnailError:
+                    # Unsupported preview format, fallback to full RAW processing
+                    img = self._process_full_raw(filepath)
+            else:
+                # Preview extraction disabled by user
+                img = self._process_full_raw(filepath)
         else:
             # Process standard image file (JPG, PNG, etc.)
             img = Image.open(filepath)
+            # Apply EXIF orientation to handle portrait/landscape correctly
+            img = ImageOps.exif_transpose(img) or img
             # Convert to RGB if needed (e.g., PNG with alpha, grayscale)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
@@ -106,6 +128,25 @@ class ImageSimilarityFinder:
         # Resize to max_size for faster DINOv2 processing
         img.thumbnail((self.max_size, self.max_size), Image.Resampling.LANCZOS)
         return img
+
+    def _process_full_raw(self, filepath: Path) -> Image.Image:
+        """
+        Process RAW file using full RAW postprocessing.
+
+        Args:
+            filepath: Path to RAW file
+
+        Returns:
+            PIL Image object (RGB, not yet resized)
+        """
+        with rawpy.imread(str(filepath)) as raw:
+            rgb = raw.postprocess(
+                use_camera_wb=True,
+                half_size=True,  # Faster processing, still good for similarity
+                no_auto_bright=True,
+                output_bps=8
+            )
+        return Image.fromarray(rgb)
 
     def compute_embedding(self, image: Image.Image) -> np.ndarray:
         """
@@ -924,6 +965,12 @@ Supported formats:
         help="Use direct similarity clustering only (no transitive grouping). Groups will only contain images that are ALL directly similar to each other."
     )
 
+    parser.add_argument(
+        "--no-raw-preview",
+        action="store_true",
+        help="Disable RAW preview extraction optimization (use full RAW processing instead). By default, embedded previews are extracted for 10-20x faster performance."
+    )
+
     args = parser.parse_args()
 
     # Validate directory
@@ -941,7 +988,8 @@ Supported formats:
         use_cache=not args.no_cache,
         max_size=args.max_size,
         model_name=args.model,
-        use_transitive=not args.direct_only
+        use_transitive=not args.direct_only,
+        use_raw_preview=not args.no_raw_preview
     )
 
     finder.process_directory(args.directory, parallel=not args.no_parallel)
