@@ -442,9 +442,10 @@ class WebViewer:
             # Check cache first
             cache_key = f"all_{image_id}"
             if cache_key in self.image_cache:
-                buffered = self.image_cache[cache_key]
-                buffered.seek(0)
-                return send_file(buffered, mimetype='image/jpeg')
+                # Create a new buffer from cached data (original buffer gets closed by send_file)
+                cached_data = self.image_cache[cache_key]
+                response_buffer = io.BytesIO(cached_data)
+                return send_file(response_buffer, mimetype='image/jpeg')
 
             # Load and process image
             try:
@@ -462,11 +463,12 @@ class WebViewer:
                 img.save(buffered, format="JPEG", quality=90)
                 buffered.seek(0)
 
-                # Store in cache
-                self.image_cache[cache_key] = buffered
+                # Store bytes data in cache (not the BytesIO object which gets closed)
+                image_data = buffered.getvalue()
+                self.image_cache[cache_key] = image_data
 
-                # Create a copy for response
-                response_buffer = io.BytesIO(buffered.getvalue())
+                # Create a buffer for response
+                response_buffer = io.BytesIO(image_data)
                 return send_file(response_buffer, mimetype='image/jpeg')
 
             except Exception as e:

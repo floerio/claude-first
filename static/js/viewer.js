@@ -19,6 +19,7 @@ let viewMode = 'groups';  // 'groups' or 'browse'
 
 // Browse All mode state
 let allImages = [];                    // All images for Browse All
+let allImagesLoaded = false;           // Track if all-images data has been loaded
 let browseCurrentPage = 0;             // Current page in Browse All
 let browseImagesPerPage = 20;          // Images per page (10/20/50/all)
 let browseSortBy = 'date';             // 'name' or 'date'
@@ -62,28 +63,23 @@ const nextBtn = document.getElementById('nextBtn');
 // Initialize
 async function init() {
     try {
-        // Load colors, clusters, ungrouped images, all images, and config in parallel
-        const [colorsResponse, clustersResponse, ungroupedResponse, allImagesResponse, configResponse] = await Promise.all([
+        // Load only what's needed for Groups mode initially (faster startup)
+        // Browse mode data will be loaded on-demand when user switches to Browse
+        const [colorsResponse, clustersResponse, ungroupedResponse, configResponse] = await Promise.all([
             fetch('/api/colors'),
             fetch('/api/clusters'),
             fetch('/api/ungrouped'),
-            fetch('/api/all-images'),
             fetch('/api/config')
         ]);
 
-        if (!colorsResponse.ok || !clustersResponse.ok || !ungroupedResponse.ok || !allImagesResponse.ok || !configResponse.ok) {
+        if (!colorsResponse.ok || !clustersResponse.ok || !ungroupedResponse.ok || !configResponse.ok) {
             throw new Error('Failed to load data');
         }
 
         availableColors = await colorsResponse.json();
         clusters = await clustersResponse.json();
         ungroupedImages = await ungroupedResponse.json();
-        allImages = await allImagesResponse.json();
-
-        // Add index to each image for API calls
-        allImages.forEach((img, idx) => {
-            img.index = idx;
-        });
+        // allImages will be loaded lazily when switching to Browse mode
 
         const config = await configResponse.json();
 
@@ -468,7 +464,7 @@ function switchToGroupsMode() {
     showCluster(currentCluster);
 }
 
-function switchToBrowseMode() {
+async function switchToBrowseMode() {
     if (viewMode === 'groups') {
         // Save Groups state
         savedGroupsState = {
@@ -493,6 +489,32 @@ function switchToBrowseMode() {
         toggleSimilaritiesBtn.style.display = 'none';
     }
 
+    // Load all-images data if not already loaded (lazy loading for performance)
+    if (!allImagesLoaded) {
+        // Show loading indicator
+        imageGrid.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading all images data...</p></div>';
+
+        try {
+            const allImagesResponse = await fetch('/api/all-images');
+            if (!allImagesResponse.ok) {
+                throw new Error('Failed to load all images');
+            }
+
+            allImages = await allImagesResponse.json();
+
+            // Add index to each image for API calls
+            allImages.forEach((img, idx) => {
+                img.index = idx;
+            });
+
+            allImagesLoaded = true;
+        } catch (error) {
+            console.error('Error loading all images:', error);
+            imageGrid.innerHTML = '<div class="error"><p>Failed to load images data.</p></div>';
+            return;
+        }
+    }
+
     // Restore Browse state
     browseCurrentPage = savedBrowseState.currentPage;
     browseImagesPerPage = savedBrowseState.imagesPerPage;
@@ -512,6 +534,12 @@ function switchToBrowseMode() {
 // ===== BROWSE ALL MODE FUNCTIONS =====
 
 function sortAllImages() {
+    // Safety check: if allImages is empty or not loaded, return empty array
+    if (!allImages || allImages.length === 0) {
+        console.warn('sortAllImages called but allImages is empty');
+        return [];
+    }
+
     let sorted = [...allImages];
 
     if (browseSortBy === 'name') {
@@ -548,6 +576,15 @@ function showBrowsePage(pageIndex) {
     applyBrowseColorFilter();
 
     const totalImages = browseFilteredImages.length;
+
+    // Debug logging
+    console.log('showBrowsePage called:', {
+        pageIndex,
+        totalImages,
+        allImagesLength: allImages.length,
+        allImagesLoaded
+    });
+
     const perPage = browseImagesPerPage === -1 ? totalImages : browseImagesPerPage;
     const totalPages = perPage === 0 ? 1 : Math.ceil(totalImages / perPage);
 
@@ -565,6 +602,12 @@ function showBrowsePage(pageIndex) {
 
     // Render grid
     imageGrid.innerHTML = '';
+
+    if (pageImages.length === 0) {
+        console.warn('No images to display');
+        imageGrid.innerHTML = '<div class="error"><p>No images to display</p></div>';
+        return;
+    }
 
     pageImages.forEach((img, idx) => {
         const globalIdx = startIdx + idx;
@@ -709,10 +752,11 @@ function openBrowseLightbox(imageIndex) {
     panOffsetX = 0;
     panOffsetY = 0;
 
-    showBrowseLightboxImage();
+    const lightbox = document.getElementById('lightbox');
+    lightbox.classList.remove('hidden');
 
-    const overlay = document.getElementById('lightboxOverlay');
-    overlay.style.display = 'flex';
+    showBrowseLightboxImage();
+    setupLightboxEventListeners();
 }
 
 async function showBrowseLightboxImage() {
@@ -722,10 +766,16 @@ async function showBrowseLightboxImage() {
     const lightboxImg = document.getElementById('lightboxImage');
     lightboxImg.src = `/api/all-images/${img.index}`;  // Use original index
 
-    // Update filename
-    const lightboxFilename = document.getElementById('lightboxFilename');
+    // Update filename (use class selector since HTML doesn't have ID)
+    const lightboxFilename = document.querySelector('.lightbox-filename');
     if (lightboxFilename) {
         lightboxFilename.textContent = img.filename;
+    }
+
+    // Update image counter
+    const imageNumElem = document.getElementById('lightboxImageNum');
+    if (imageNumElem) {
+        imageNumElem.textContent = `${lightboxImageIndex + 1} of ${browseFilteredImages.length}`;
     }
 
     // Fetch and display EXIF
@@ -734,7 +784,7 @@ async function showBrowseLightboxImage() {
         if (exifResponse.ok) {
             const exif = await exifResponse.json();
             const exifHeaderElem = document.getElementById('lightboxExifHeader');
-            const exifFooterElem = document.getElementById('lightboxExifFooter');
+            const exifFooterElem = document.getElementById('lightboxExif');  // Correct ID
             if (exifHeaderElem && exifFooterElem) {
                 displayExifData(exif, exifHeaderElem, exifFooterElem);
             }
