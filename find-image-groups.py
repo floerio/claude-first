@@ -13,7 +13,7 @@ import sys
 import json
 import hashlib
 from pathlib import Path
-from typing import List, Tuple, Dict, Set
+from typing import List, Tuple, Dict, Set, Optional
 from multiprocessing import Pool, cpu_count
 import rawpy
 from PIL import Image, ImageOps
@@ -24,12 +24,13 @@ from web_viewer import WebViewer
 import torch
 from transformers import AutoImageProcessor, AutoModel
 from sklearn.metrics.pairwise import cosine_similarity
+from eye_detector import EyeDetector
 
 
 class ImageSimilarityFinder:
     """Find similar images in a collection of RAW and standard image files using DINOv2."""
 
-    def __init__(self, threshold: float = 0.85, use_cache: bool = True, max_size: int = 512, model_name: str = "facebook/dinov2-base", use_transitive: bool = False, use_raw_preview: bool = True):
+    def __init__(self, threshold: float = 0.85, use_cache: bool = True, max_size: int = 512, model_name: str = "facebook/dinov2-base", use_transitive: bool = False, use_raw_preview: bool = True, detect_eyes: bool = False, eye_threshold: float = 0.02, filter_closed_eyes: bool = False):
         """
         Initialize the similarity finder.
 
@@ -40,6 +41,9 @@ class ImageSimilarityFinder:
             model_name: DINOv2 model to use (dinov2-small, dinov2-base, dinov2-large, dinov2-giant)
             use_transitive: If True, use transitive clustering. If False, use direct similarity only.
             use_raw_preview: If True, extract embedded previews from RAW files (10-20x faster)
+            detect_eyes: If True, detect open/closed eyes in images
+            eye_threshold: Threshold for eye detection (closed_score - open_score > threshold = closed)
+            filter_closed_eyes: If True, filter out images with closed eyes from results
         """
         self.threshold = threshold
         self.use_cache = use_cache
@@ -47,7 +51,10 @@ class ImageSimilarityFinder:
         self.model_name = model_name
         self.use_transitive = use_transitive
         self.use_raw_preview = use_raw_preview
+        self.detect_eyes = detect_eyes
+        self.filter_closed_eyes = filter_closed_eyes
         self.image_embeddings: Dict[str, np.ndarray] = {}
+        self.eye_detection_results: Dict[str, Dict] = {}
         self.cache_file = None
 
         # Setup device (GPU if available)
@@ -69,6 +76,12 @@ class ImageSimilarityFinder:
         self.model.to(self.device)
         self.model.eval()
         print("✓ Model loaded and ready")
+
+        # Initialize eye detector if enabled
+        self.eye_detector: Optional[EyeDetector] = None
+        if self.detect_eyes:
+            self.eye_detector = EyeDetector(threshold=eye_threshold, device=self.device)
+            self.eye_detector.load_models()
 
     def load_image_file(self, filepath: Path) -> Image.Image:
         """
@@ -202,8 +215,9 @@ class ImageSimilarityFinder:
             with open(self.cache_file, 'r') as f:
                 cache_data = json.load(f)
 
-            # Validate cache version and model
-            if cache_data.get('version') != '2.0' or cache_data.get('model_name') != self.model_name:
+            # Validate cache version and model (support 2.0 and 2.1 for backward compatibility)
+            cache_version = cache_data.get('version')
+            if cache_version not in ['2.0', '2.1'] or cache_data.get('model_name') != self.model_name:
                 print("Cache version mismatch or different model, rebuilding cache...")
                 return {}
 
@@ -226,7 +240,7 @@ class ImageSimilarityFinder:
         try:
             # Convert numpy embeddings to lists for JSON serialization
             cache_data = {
-                'version': '2.0',
+                'version': '2.1',
                 'model_name': self.model_name,
                 'embeddings': {}
             }
@@ -235,10 +249,16 @@ class ImageSimilarityFinder:
                 file_path_obj = Path(filepath)
                 if file_path_obj.exists():
                     signature = self.get_file_signature(file_path_obj)
-                    cache_data['embeddings'][filepath] = {
+                    cache_entry = {
                         'signature': signature,
                         'embedding': embedding.tolist()
                     }
+
+                    # Add eye detection data if available
+                    if filepath in self.eye_detection_results:
+                        cache_entry['eye_detection'] = self.eye_detection_results[filepath]
+
+                    cache_data['embeddings'][filepath] = cache_entry
 
             with open(self.cache_file, 'w') as f:
                 json.dump(cache_data, f, indent=2)
@@ -296,6 +316,11 @@ class ImageSimilarityFinder:
                     try:
                         embedding_list = cached_entry['embedding']
                         self.image_embeddings[filepath_str] = np.array(embedding_list)
+
+                        # Load cached eye detection result if available
+                        if 'eye_detection' in cached_entry and self.detect_eyes:
+                            self.eye_detection_results[filepath_str] = cached_entry['eye_detection']
+
                         cached_count += 1
                         continue
                     except Exception:
@@ -318,13 +343,51 @@ class ImageSimilarityFinder:
             if embedding is not None:
                 self.image_embeddings[filepath_str] = embedding
 
+        # Perform eye detection separately if enabled
+        if self.detect_eyes:
+            # Find files that need eye detection (not already cached)
+            files_needing_eye_detection = []
+            for filepath in image_files:
+                filepath_str = str(filepath)
+                if filepath_str in self.image_embeddings and filepath_str not in self.eye_detection_results:
+                    files_needing_eye_detection.append(filepath)
+
+            if files_needing_eye_detection:
+                print(f"\nDetecting eyes in {len(files_needing_eye_detection)} images...")
+                for filepath in tqdm(files_needing_eye_detection, desc="Detecting eyes"):
+                    filepath_str = str(filepath)
+                    try:
+                        # Load the image (reuse the already-processed one if possible)
+                        image = self.load_image_file(filepath)
+                        eye_result = self.eye_detector.detect_eyes(image)
+                        self.eye_detection_results[filepath_str] = eye_result
+                    except Exception as e:
+                        print(f"\nError detecting eyes in {filepath.name}: {e}", file=sys.stderr)
+
+        # Filter closed eyes if requested
+        if self.filter_closed_eyes and self.detect_eyes:
+            filtered_count = 0
+            paths_to_remove = []
+
+            for filepath, eye_result in self.eye_detection_results.items():
+                if eye_result.get('status') == 'closed':
+                    paths_to_remove.append(filepath)
+                    filtered_count += 1
+
+            for path in paths_to_remove:
+                if path in self.image_embeddings:
+                    del self.image_embeddings[path]
+
+            if filtered_count > 0:
+                print(f"\nFiltered out {filtered_count} images with closed eyes")
+
         # Save cache
         if self.use_cache:
             self.save_cache(directory)
 
-    def _process_single_file(self, filepath: Path) -> Tuple[str, np.ndarray]:
+    def _process_single_file(self, filepath: Path) -> Tuple[str, Optional[np.ndarray]]:
         """
-        Process a single image file.
+        Process a single image file and compute embedding.
 
         Args:
             filepath: Path to image file
@@ -573,6 +636,46 @@ class ImageSimilarityFinder:
 
         return sorted(ungrouped_images)
 
+    def get_eye_detection_stats(self) -> Dict:
+        """
+        Get statistics on eye detection results.
+
+        Returns:
+            Dictionary with counts for each status
+        """
+        stats = {
+            'total': len(self.eye_detection_results),
+            'open': 0,
+            'closed': 0,
+            'no_face': 0,
+            'error': 0
+        }
+
+        for result in self.eye_detection_results.values():
+            status = result.get('status', 'error')
+            if status in stats:
+                stats[status] += 1
+
+        return stats
+
+    def print_eye_detection_stats(self) -> None:
+        """Print eye detection statistics to console."""
+        if not self.eye_detection_results:
+            return
+
+        stats = self.get_eye_detection_stats()
+
+        print(f"\n{'='*80}")
+        print("Eye Detection Summary:")
+        print(f"{'='*80}")
+        print(f"  Open eyes:        {stats['open']} images")
+        print(f"  Closed eyes:      {stats['closed']} images")
+        print(f"  No face detected: {stats['no_face']} images")
+        if stats['error'] > 0:
+            print(f"  Errors:           {stats['error']} images")
+        print(f"  Total processed:  {stats['total']} images")
+        print(f"{'='*80}\n")
+
     def print_results(self, similar_pairs: List[Tuple[str, str, float]]) -> None:
         """
         Print the results of similarity comparison.
@@ -689,9 +792,10 @@ Supported formats:
     )
 
     parser.add_argument(
-        "-w", "--web-viewer",
-        action="store_true",
-        help="Launch web-based viewer (better performance and UI)"
+       "--no-web-viewer",
+       action="store_false",
+       dest="web_viewer",
+       help="Disable web-based viewer (enabled by default)"
     )
 
     parser.add_argument(
@@ -731,6 +835,31 @@ Supported formats:
         help="Disable RAW preview extraction optimization (use full RAW processing instead). By default, embedded previews are extracted for 10-20x faster performance."
     )
 
+    parser.add_argument(
+        "-de", "--detect-eyes",
+        action="store_true",
+        help="Enable eye detection to identify images with open/closed eyes"
+    )
+
+    parser.add_argument(
+        "--filter-closed-eyes",
+        action="store_true",
+        help="Filter out images with closed eyes from results (requires --detect-eyes)"
+    )
+
+    parser.add_argument(
+        "--eye-threshold",
+        type=float,
+        default=0.02,
+        help="Eye detection threshold (default: 0.02). Higher = stricter closed eye detection"
+    )
+
+    parser.add_argument(
+        "--show-eye-stats",
+        action="store_true",
+        help="Show eye detection statistics in console output"
+    )
+
     args = parser.parse_args()
 
     # Validate directory
@@ -749,7 +878,10 @@ Supported formats:
         max_size=args.max_size,
         model_name=args.model,
         use_transitive=not args.direct_only,
-        use_raw_preview=not args.no_raw_preview
+        use_raw_preview=not args.no_raw_preview,
+        detect_eyes=args.detect_eyes,
+        eye_threshold=args.eye_threshold,
+        filter_closed_eyes=args.filter_closed_eyes
     )
 
     finder.process_directory(args.directory, parallel=not args.no_parallel)
@@ -757,6 +889,10 @@ Supported formats:
     if not finder.image_embeddings:
         print("No images were successfully processed.")
         sys.exit(1)
+
+    # Show eye detection statistics if requested
+    if args.show_eye_stats and args.detect_eyes:
+        finder.print_eye_detection_stats()
 
     similar_pairs = finder.find_similar_images()
 

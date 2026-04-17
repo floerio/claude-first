@@ -273,7 +273,8 @@ class WebViewer:
                         {
                             'path': img,
                             'filename': Path(img).name,
-                            'color': self.read_color_tag(img)
+                            'color': self.read_color_tag(img),
+                            'eye_detection': self.finder.eye_detection_results.get(img) if self.finder.detect_eyes else None
                         }
                         for img in cluster['images']
                     ],
@@ -302,7 +303,8 @@ class WebViewer:
                     'id': i,
                     'path': img_path,
                     'filename': Path(img_path).name,
-                    'color': self.read_color_tag(img_path)
+                    'color': self.read_color_tag(img_path),
+                    'eye_detection': self.finder.eye_detection_results.get(img_path) if self.finder.detect_eyes else None
                 })
             return jsonify(ungrouped_data)
 
@@ -406,7 +408,8 @@ class WebViewer:
                         'path': img_path,
                         'filename': os.path.basename(img_path),
                         'color': self.read_color_tag(img_path),
-                        'creation_date': creation_date
+                        'creation_date': creation_date,
+                        'eye_detection': self.finder.eye_detection_results.get(img_path) if self.finder.detect_eyes else None
                     })
 
             # Collect ungrouped if available
@@ -419,7 +422,8 @@ class WebViewer:
                         'path': img_path,
                         'filename': os.path.basename(img_path),
                         'color': self.read_color_tag(img_path),
-                        'creation_date': creation_date
+                        'creation_date': creation_date,
+                        'eye_detection': self.finder.eye_detection_results.get(img_path) if self.finder.detect_eyes else None
                     })
 
             return jsonify(all_images)
@@ -625,7 +629,48 @@ class WebViewer:
             """Return current configuration."""
             return jsonify({
                 'threshold': self.finder.threshold,
-                'direct_only': not self.finder.use_transitive
+                'direct_only': not self.finder.use_transitive,
+                'eye_detection_enabled': self.finder.detect_eyes
+            })
+
+        @self.app.route('/api/eye-detection/<int:cluster_id>/<int:image_id>')
+        def get_eye_detection(cluster_id, image_id):
+            """Get eye detection data for an image."""
+            if not self.finder.detect_eyes:
+                return jsonify({'enabled': False}), 200
+
+            if cluster_id >= len(self.clusters):
+                return jsonify({'error': 'Cluster not found'}), 404
+
+            cluster = self.clusters[cluster_id]
+            if image_id >= len(cluster['images']):
+                return jsonify({'error': 'Image not found'}), 404
+
+            image_path = cluster['images'][image_id]
+            eye_result = self.finder.eye_detection_results.get(image_path)
+
+            if eye_result is None:
+                return jsonify({'enabled': True, 'detected': False}), 200
+
+            return jsonify({
+                'enabled': True,
+                'detected': True,
+                'status': eye_result.get('status'),
+                'score': eye_result.get('score'),
+                'confidence': eye_result.get('confidence'),
+                'method': eye_result.get('method')
+            })
+
+        @self.app.route('/api/eye-stats')
+        def get_eye_stats():
+            """Get overall eye detection statistics."""
+            if not self.finder.detect_eyes:
+                return jsonify({'enabled': False}), 200
+
+            stats = self.finder.get_eye_detection_stats()
+            return jsonify({
+                'enabled': True,
+                **stats
             })
 
         @self.app.route('/api/color/<int:cluster_id>/<int:image_id>', methods=['POST'])

@@ -450,6 +450,72 @@ main::-webkit-scrollbar-track {
     opacity: 0.5;
 }
 
+/* Eye detection badge */
+.eye-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 1.5rem;
+    background: rgba(0, 0, 0, 0.75);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    transition: transform 0.2s;
+}
+
+.eye-badge:hover {
+    transform: scale(1.1);
+}
+
+.eye-badge.eye-open {
+    border: 2px solid #4CAF50;
+}
+
+.eye-badge.eye-closed {
+    border: 2px solid #f44336;
+}
+
+.eye-badge.eye-no-face {
+    border: 2px solid #9e9e9e;
+}
+
+.eye-badge.eye-error {
+    border: 2px solid #ff9800;
+}
+
+/* Eye detection in EXIF panel */
+.eye-detection-exif {
+    border-top: 1px solid #404040;
+    padding-top: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.eye-status-open {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.eye-status-closed {
+    color: #f44336;
+    font-weight: bold;
+}
+
+.eye-status-no-face {
+    color: #9e9e9e;
+    font-weight: bold;
+}
+
+.eye-status-error {
+    color: #ff9800;
+    font-weight: bold;
+}
+
 .image-filename {
     padding: 1rem;
     font-weight: 500;

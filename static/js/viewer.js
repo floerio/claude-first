@@ -9,6 +9,7 @@ let showUngrouped = false;
 let gridBrightness = 100; // Global brightness for grid view
 let currentThreshold = 0.85; // Current similarity threshold
 let isReclustering = false; // Flag to prevent multiple simultaneous re-clustering
+let eyeDetectionEnabled = false; // Track if eye detection is enabled
 
 // Color filter state (updated logic)
 let colorFilterMode = 'all';          // 'all' or 'selective'
@@ -85,6 +86,7 @@ async function init() {
 
         // Set initial UI state from config
         currentThreshold = config.threshold;
+        eyeDetectionEnabled = config.eye_detection_enabled || false;
 
         // Set the radio button for the current threshold
         const thresholdRadios = document.querySelectorAll('input[name="threshold"]');
@@ -128,6 +130,45 @@ function showError() {
 }
 
 // Display a cluster
+// Create eye detection badge for an image
+function createEyeBadge(eyeDetection) {
+    if (!eyeDetectionEnabled || !eyeDetection) {
+        return null;
+    }
+
+    const badge = document.createElement('div');
+    badge.className = 'eye-badge';
+
+    const status = eyeDetection.status;
+    let icon = '';
+    let title = '';
+    let badgeClass = '';
+
+    if (status === 'open') {
+        icon = '👁️';
+        title = `Eyes Open (score: ${eyeDetection.score.toFixed(3)})`;
+        badgeClass = 'eye-open';
+    } else if (status === 'closed') {
+        icon = '😑';
+        title = `Eyes Closed (score: ${eyeDetection.score.toFixed(3)})`;
+        badgeClass = 'eye-closed';
+    } else if (status === 'no_face') {
+        icon = '❓';
+        title = 'No Face Detected';
+        badgeClass = 'eye-no-face';
+    } else if (status === 'error') {
+        icon = '⚠';
+        title = 'Eye Detection Error';
+        badgeClass = 'eye-error';
+    }
+
+    badge.className += ` ${badgeClass}`;
+    badge.textContent = icon;
+    badge.title = title;
+
+    return badge;
+}
+
 function showCluster(index) {
     // Handle ungrouped images as a special "cluster"
     if (showUngrouped && index >= clusters.length) {
@@ -187,6 +228,14 @@ function showCluster(index) {
         };
 
         wrapper.appendChild(img);
+
+        // Add eye detection badge if available
+        if (eyeDetectionEnabled && image.eye_detection) {
+            const eyeBadge = createEyeBadge(image.eye_detection);
+            if (eyeBadge) {
+                wrapper.appendChild(eyeBadge);
+            }
+        }
 
         const filename = document.createElement('div');
         filename.className = 'image-filename';
@@ -286,6 +335,14 @@ function showUngroupedImages() {
         };
 
         wrapper.appendChild(img);
+
+        // Add eye detection badge if available
+        if (eyeDetectionEnabled && image.eye_detection) {
+            const eyeBadge = createEyeBadge(image.eye_detection);
+            if (eyeBadge) {
+                wrapper.appendChild(eyeBadge);
+            }
+        }
 
         const filename = document.createElement('div');
         filename.className = 'image-filename';
@@ -648,6 +705,14 @@ function createBrowseImageCard(img, displayIdx) {
 
     wrapper.appendChild(imgElem);
 
+    // Add eye detection badge if available
+    if (eyeDetectionEnabled && img.eye_detection) {
+        const eyeBadge = createEyeBadge(img.eye_detection);
+        if (eyeBadge) {
+            wrapper.appendChild(eyeBadge);
+        }
+    }
+
     // Filename
     const filename = document.createElement('div');
     filename.className = 'image-filename';
@@ -786,7 +851,7 @@ async function showBrowseLightboxImage() {
             const exifHeaderElem = document.getElementById('lightboxExifHeader');
             const exifFooterElem = document.getElementById('lightboxExif');  // Correct ID
             if (exifHeaderElem && exifFooterElem) {
-                displayExifData(exif, exifHeaderElem, exifFooterElem);
+                displayExifData(exif, exifHeaderElem, exifFooterElem, img.eye_detection);
             }
         }
     } catch (err) {
@@ -1613,7 +1678,7 @@ async function showLightboxImage() {
         if (exifResponse.ok) {
             const exif = await exifResponse.json();
             console.log('EXIF data received:', exif); // Debug logging
-            displayExifData(exif, exifElemHeader, exifElemFooter);
+            displayExifData(exif, exifElemHeader, exifElemFooter, image.eye_detection);
         } else {
             console.error('EXIF request failed:', exifResponse.status);
             exifElemHeader.innerHTML = '<span style="color: #888;">No EXIF data available</span>';
@@ -1624,7 +1689,7 @@ async function showLightboxImage() {
     }
 }
 
-function displayExifData(exif, containerHeader, containerFooter) {
+function displayExifData(exif, containerHeader, containerFooter, eyeDetection = null) {
     containerHeader.innerHTML = '';
     if (containerFooter) containerFooter.innerHTML = '';
 
@@ -1657,6 +1722,44 @@ function displayExifData(exif, containerHeader, containerFooter) {
             containerHeader.appendChild(item);
         }
     });
+
+    // Add eye detection info if available
+    if (eyeDetectionEnabled && eyeDetection && containerFooter) {
+        const eyeItem = document.createElement('div');
+        eyeItem.className = 'exif-item eye-detection-exif';
+
+        const label = document.createElement('div');
+        label.className = 'exif-label';
+        label.textContent = 'Eyes';
+
+        const value = document.createElement('div');
+        value.className = 'exif-value';
+
+        const status = eyeDetection.status;
+        let statusText = '';
+        let statusClass = '';
+
+        if (status === 'open') {
+            statusText = '👁️ Open';
+            statusClass = 'eye-status-open';
+        } else if (status === 'closed') {
+            statusText = '😑 Closed';
+            statusClass = 'eye-status-closed';
+        } else if (status === 'no_face') {
+            statusText = '❓ No Face';
+            statusClass = 'eye-status-no-face';
+        } else if (status === 'error') {
+            statusText = '⚠ Error';
+            statusClass = 'eye-status-error';
+        }
+
+        value.innerHTML = `<span class="${statusClass}">${statusText}</span>`;
+        value.title = `Score: ${eyeDetection.score?.toFixed(3)}, Method: ${eyeDetection.method}`;
+
+        eyeItem.appendChild(label);
+        eyeItem.appendChild(value);
+        containerFooter.appendChild(eyeItem);
+    }
 
     if (!hasData) {
         console.log('No EXIF fields found in data:', exif);
