@@ -265,19 +265,24 @@ class WebViewer:
         def get_clusters():
             """Return cluster metadata."""
             clusters_data = []
+            eye_data_count = 0
             for i, cluster in enumerate(self.clusters):
+                images_with_eye_data = []
+                for img in cluster['images']:
+                    eye_data = self.finder.eye_detection_results.get(img) if self.finder.detect_eyes else None
+                    if eye_data:
+                        eye_data_count += 1
+                    images_with_eye_data.append({
+                        'path': img,
+                        'filename': Path(img).name,
+                        'color': self.read_color_tag(img),
+                        'eye_detection': eye_data
+                    })
+
                 cluster_info = {
                     'id': i,
                     'num_images': len(cluster['images']),
-                    'images': [
-                        {
-                            'path': img,
-                            'filename': Path(img).name,
-                            'color': self.read_color_tag(img),
-                            'eye_detection': self.finder.eye_detection_results.get(img) if self.finder.detect_eyes else None
-                        }
-                        for img in cluster['images']
-                    ],
+                    'images': images_with_eye_data,
                     'similarities': [
                         {
                             'img1': Path(pair[0]).name,
@@ -289,6 +294,8 @@ class WebViewer:
                     ]
                 }
                 clusters_data.append(cluster_info)
+
+            print(f"[Clusters API] Returning {len(clusters_data)} clusters with {eye_data_count} images having eye detection data")
             return jsonify(clusters_data)
 
         @self.app.route('/api/ungrouped')
@@ -418,13 +425,19 @@ class WebViewer:
                     exif = self.get_exif_data(img_path)
                     creation_date = exif.get('datetime', '')
 
+                    eye_data = self.finder.eye_detection_results.get(img_path) if self.finder.detect_eyes else None
                     all_images.append({
                         'path': img_path,
                         'filename': os.path.basename(img_path),
                         'color': self.read_color_tag(img_path),
                         'creation_date': creation_date,
-                        'eye_detection': self.finder.eye_detection_results.get(img_path) if self.finder.detect_eyes else None
+                        'eye_detection': eye_data
                     })
+
+            # Debug logging
+            images_with_eye_data = sum(1 for img in all_images if img['eye_detection'] is not None)
+            images_with_closed = sum(1 for img in all_images if img['eye_detection'] and img['eye_detection'].get('status') == 'closed')
+            print(f"[All-Images API] Returning {len(all_images)} images, {images_with_eye_data} with eye data, {images_with_closed} with closed eyes")
 
             return jsonify(all_images)
 
@@ -627,11 +640,13 @@ class WebViewer:
         @self.app.route('/api/config')
         def get_config():
             """Return current configuration."""
-            return jsonify({
+            config = {
                 'threshold': self.finder.threshold,
                 'direct_only': not self.finder.use_transitive,
                 'eye_detection_enabled': self.finder.detect_eyes
-            })
+            }
+            print(f"[Config] Eye detection enabled: {self.finder.detect_eyes}, Results count: {len(self.finder.eye_detection_results)}")
+            return jsonify(config)
 
         @self.app.route('/api/eye-detection/<int:cluster_id>/<int:image_id>')
         def get_eye_detection(cluster_id, image_id):

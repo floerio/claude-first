@@ -1053,15 +1053,16 @@ main::-webkit-scrollbar-track {
     outline-offset: 2px;
 }
 
-/* EXIF Filters Placeholder */
-.exif-filters-placeholder {
-    opacity: 0.5;
-    font-style: italic;
+/* Eye Detection Filter */
+.eye-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-.placeholder-text {
-    color: #999;
-    font-size: 0.9rem;
+.eye-filter-group label {
+    font-weight: 500;
+    color: #e0e0e0;
 }
 
 /* ===== Updated Color Filter Styles ===== */
@@ -1129,6 +1130,37 @@ main::-webkit-scrollbar-track {
     font-weight: bold;
     font-size: 13px;
     text-shadow: 0 0 3px rgba(0,0,0,0.5);
+}
+
+/* Eye filter button */
+.eye-filter-btn {
+    background: #2d2d2d;
+    color: #e0e0e0;
+    border: 2px solid #505050;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    font-size: 1.2rem;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin-left: 0.5rem;
+}
+
+.eye-filter-btn:hover {
+    background: #3a3a3a;
+    border-color: #f44336;
+    transform: scale(1.1);
+}
+
+.eye-filter-btn.active {
+    background: #f44336;
+    border-color: #f44336;
+    transform: scale(1.15);
+    box-shadow: 0 0 10px rgba(244, 67, 54, 0.5);
 }
 
 .filter-status {

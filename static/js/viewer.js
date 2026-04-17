@@ -15,6 +15,9 @@ let eyeDetectionEnabled = false; // Track if eye detection is enabled
 let colorFilterMode = 'all';          // 'all' or 'selective'
 let selectedColorFilters = new Set(); // Colors to SHOW (not hide)
 
+// Eye detection filter state
+let closedEyesFilterActive = false;  // true = show only closed eyes
+
 // View mode state
 let viewMode = 'groups';  // 'groups' or 'browse'
 
@@ -88,6 +91,9 @@ async function init() {
         currentThreshold = config.threshold;
         eyeDetectionEnabled = config.eye_detection_enabled || false;
 
+        // Debug logging
+        console.log('Eye detection enabled:', eyeDetectionEnabled);
+
         // Set the radio button for the current threshold
         const thresholdRadios = document.querySelectorAll('input[name="threshold"]');
         thresholdRadios.forEach(radio => {
@@ -100,6 +106,13 @@ async function init() {
         const directOnlyCheckbox = document.getElementById('directOnlyCheckbox');
         if (directOnlyCheckbox) {
             directOnlyCheckbox.checked = config.direct_only;
+        }
+
+        // Show closed eyes filter button if eye detection is enabled
+        const closedEyesFilterBtn = document.getElementById('closedEyesFilterBtn');
+        if (closedEyesFilterBtn) {
+            closedEyesFilterBtn.style.display = eyeDetectionEnabled ? '' : 'none';
+            console.log('Closed eyes filter button visible:', eyeDetectionEnabled);
         }
 
         showUngrouped = ungroupedImages.length > 0;
@@ -181,8 +194,22 @@ function showCluster(index) {
 
     const cluster = clusters[currentCluster];
 
+    // Filter images if closed eyes filter is active
+    let imagesToShow = cluster.images;
+    if (eyeDetectionEnabled && closedEyesFilterActive) {
+        imagesToShow = cluster.images.filter(img => {
+            return img.eye_detection && img.eye_detection.status === 'closed';
+        });
+    }
+
     // Update header info
-    groupInfo.textContent = `Group ${currentCluster + 1} of ${clusters.length} (${cluster.num_images} images)`;
+    const totalImages = cluster.num_images;
+    const showingImages = imagesToShow.length;
+    if (closedEyesFilterActive && showingImages !== totalImages) {
+        groupInfo.textContent = `Group ${currentCluster + 1} of ${clusters.length} (showing ${showingImages} of ${totalImages} images)`;
+    } else {
+        groupInfo.textContent = `Group ${currentCluster + 1} of ${clusters.length} (${totalImages} images)`;
+    }
 
     // Clear previous content
     imageGrid.innerHTML = '';
@@ -192,7 +219,7 @@ function showCluster(index) {
     focusedImageIndex = 0;
 
     // Create image cards
-    cluster.images.forEach((image, idx) => {
+    imagesToShow.forEach((image, idx) => {
         const card = document.createElement('div');
         card.className = 'image-card';
         card.dataset.imageIndex = idx;
@@ -274,6 +301,11 @@ function showCluster(index) {
         similarityList.appendChild(item);
     });
 
+    // Apply color filter if active (must be done AFTER cards are created)
+    if (selectedColorFilters.size > 0) {
+        applyGroupsColorFilter();
+    }
+
     // Update button states
     updateButtons();
 }
@@ -281,9 +313,23 @@ function showCluster(index) {
 // Display ungrouped images
 function showUngroupedImages() {
     currentCluster = clusters.length; // Special index for ungrouped
-    
+
+    // Filter images if closed eyes filter is active
+    let imagesToShow = ungroupedImages;
+    if (eyeDetectionEnabled && closedEyesFilterActive) {
+        imagesToShow = ungroupedImages.filter(img => {
+            return img.eye_detection && img.eye_detection.status === 'closed';
+        });
+    }
+
     // Update header info
-    groupInfo.textContent = `Ungrouped Images (${ungroupedImages.length} images)`;
+    const totalImages = ungroupedImages.length;
+    const showingImages = imagesToShow.length;
+    if (closedEyesFilterActive && showingImages !== totalImages) {
+        groupInfo.textContent = `Ungrouped Images (showing ${showingImages} of ${totalImages} images)`;
+    } else {
+        groupInfo.textContent = `Ungrouped Images (${totalImages} images)`;
+    }
 
     // Clear previous content
     imageGrid.innerHTML = '';
@@ -299,7 +345,7 @@ function showUngroupedImages() {
     focusedImageIndex = 0;
 
     // Create image cards
-    ungroupedImages.forEach((image, idx) => {
+    imagesToShow.forEach((image, idx) => {
         const card = document.createElement('div');
         card.className = 'image-card';
         card.dataset.imageIndex = idx;
@@ -356,6 +402,11 @@ function showUngroupedImages() {
         card.appendChild(colorPicker);
         imageGrid.appendChild(card);
     });
+
+    // Apply color filter if active (must be done AFTER cards are created)
+    if (selectedColorFilters.size > 0) {
+        applyGroupsColorFilter();
+    }
 
     // Update button states
     updateButtons();
@@ -615,22 +666,31 @@ function sortAllImages() {
     return sorted;
 }
 
-function applyBrowseColorFilter() {
+function applyBrowseFilters() {
     const sorted = sortAllImages();
 
-    if (colorFilterMode === 'all') {
-        browseFilteredImages = sorted;
-    } else {
-        // Show only selected colors
-        browseFilteredImages = sorted.filter(img => {
+    let filtered = sorted;
+
+    // Apply color filter (only if colors are actually selected)
+    if (colorFilterMode === 'selective' && selectedColorFilters.size > 0) {
+        filtered = filtered.filter(img => {
             const color = img.color || 'None';
             return selectedColorFilters.has(color);
         });
     }
+
+    // Apply closed eyes filter (if active)
+    if (eyeDetectionEnabled && closedEyesFilterActive) {
+        filtered = filtered.filter(img => {
+            return img.eye_detection && img.eye_detection.status === 'closed';
+        });
+    }
+
+    browseFilteredImages = filtered;
 }
 
 function showBrowsePage(pageIndex) {
-    applyBrowseColorFilter();
+    applyBrowseFilters();
 
     const totalImages = browseFilteredImages.length;
 
@@ -1105,8 +1165,8 @@ function toggleSelectiveColorFilter(color) {
         selectedColorFilters.add(color);
     }
 
-    // If no colors selected, revert to "Show All"
-    if (selectedColorFilters.size === 0) {
+    // If no colors selected AND closed eyes filter is not active, revert to "Show All"
+    if (selectedColorFilters.size === 0 && !closedEyesFilterActive) {
         activateShowAll();
         return;
     }
@@ -1121,12 +1181,61 @@ function toggleSelectiveColorFilter(color) {
 function activateShowAll() {
     colorFilterMode = 'all';
     selectedColorFilters.clear();
+    closedEyesFilterActive = false; // Also reset closed eyes filter
+
     const showAllBtn = document.getElementById('showAllFilterBtn');
     if (showAllBtn) {
         showAllBtn.classList.add('active');
     }
+
+    // Reset closed eyes filter button
+    const closedEyesBtn = document.getElementById('closedEyesFilterBtn');
+    if (closedEyesBtn) {
+        closedEyesBtn.classList.remove('active');
+    }
+
     updateColorFilterButtons();
     applyColorFilter();
+}
+
+function toggleClosedEyesFilter() {
+    if (!eyeDetectionEnabled) return;
+
+    closedEyesFilterActive = !closedEyesFilterActive;
+
+    const closedEyesBtn = document.getElementById('closedEyesFilterBtn');
+    const showAllBtn = document.getElementById('showAllFilterBtn');
+
+    if (closedEyesFilterActive) {
+        // Activate closed eyes filter
+        closedEyesBtn.classList.add('active');
+        // Deactivate "Show All" since we're filtering now
+        if (showAllBtn) {
+            showAllBtn.classList.remove('active');
+        }
+        // Don't change colorFilterMode - let it stay as is
+    } else {
+        // Deactivate closed eyes filter
+        closedEyesBtn.classList.remove('active');
+        // If no color filters are active, switch back to Show All
+        if (selectedColorFilters.size === 0 && colorFilterMode === 'selective') {
+            colorFilterMode = 'all';
+            if (showAllBtn) {
+                showAllBtn.classList.add('active');
+            }
+        }
+    }
+
+    // Apply filter based on current view mode
+    if (viewMode === 'browse') {
+        browseCurrentPage = 0; // Reset to first page
+        showBrowsePage(0);
+    } else {
+        // In groups mode, refresh current cluster
+        showCluster(currentCluster);
+    }
+
+    updateFilterStatus();
 }
 
 function updateColorFilterButtons() {
@@ -1145,15 +1254,26 @@ function updateFilterStatus() {
     const status = document.getElementById('filterStatus');
     if (!status) return;
 
-    if (colorFilterMode === 'all') {
+    const filters = [];
+
+    // Add color filters
+    if (selectedColorFilters.size > 0) {
+        filters.push(Array.from(selectedColorFilters).join(', '));
+    }
+
+    // Add closed eyes filter
+    if (closedEyesFilterActive) {
+        filters.push('Closed Eyes');
+    }
+
+    if (filters.length === 0) {
         status.textContent = 'Showing all images';
         status.style.color = '#4CAF50';
     } else {
-        const colors = Array.from(selectedColorFilters).join(', ');
         const count = viewMode === 'groups'
-            ? document.querySelectorAll('.image-card:not([style*="display: none"])').length
+            ? document.querySelectorAll('.image-card').length
             : browseFilteredImages.length;
-        status.textContent = `Showing ${colors} (${count} images)`;
+        status.textContent = `Showing ${filters.join(' + ')} (${count} images)`;
         status.style.color = '#FF9800';
     }
 }
@@ -1172,7 +1292,7 @@ function applyColorFilter() {
 function applyGroupsColorFilter() {
     const imageCards = document.querySelectorAll('.image-card');
 
-    if (colorFilterMode === 'all') {
+    if (selectedColorFilters.size === 0) {
         // Show all images
         imageCards.forEach(card => {
             card.style.display = '';
@@ -1340,6 +1460,12 @@ function setupEventListeners() {
             browseCurrentPage = 0;
             showBrowsePage(0);
         });
+    }
+
+    // Closed eyes filter button
+    const closedEyesFilterBtn = document.getElementById('closedEyesFilterBtn');
+    if (closedEyesFilterBtn) {
+        closedEyesFilterBtn.addEventListener('click', toggleClosedEyesFilter);
     }
 
     // Show All filter button

@@ -323,27 +323,31 @@ class ImageSimilarityFinder:
 
                         cached_count += 1
                         continue
-                    except Exception:
+                    except Exception as e:
+                        print(f"\nWarning: Error loading cache for {filepath.name}: {e}", file=sys.stderr)
                         pass  # Fall through to reprocess
 
             files_to_process.append(filepath)
 
         if cached_count > 0:
             print(f"Loaded {cached_count} embeddings from cache.")
+            if self.detect_eyes:
+                eye_cached_count = len(self.eye_detection_results)
+                print(f"Loaded {eye_cached_count} eye detection results from cache.")
 
-        if not files_to_process:
+        # Process new files (if any)
+        if files_to_process:
+            print(f"Processing {len(files_to_process)} files...")
+
+            # Process files sequentially (GPU processing doesn't benefit from multiprocessing)
+            for filepath in tqdm(files_to_process, desc="Computing embeddings"):
+                filepath_str, embedding = self._process_single_file(filepath)
+                if embedding is not None:
+                    self.image_embeddings[filepath_str] = embedding
+        else:
             print("All embeddings loaded from cache!")
-            return
 
-        print(f"Processing {len(files_to_process)} files...")
-
-        # Process files sequentially (GPU processing doesn't benefit from multiprocessing)
-        for filepath in tqdm(files_to_process, desc="Computing embeddings"):
-            filepath_str, embedding = self._process_single_file(filepath)
-            if embedding is not None:
-                self.image_embeddings[filepath_str] = embedding
-
-        # Perform eye detection separately if enabled
+        # Perform eye detection separately if enabled (runs even if all embeddings were cached)
         if self.detect_eyes:
             # Find files that need eye detection (not already cached)
             files_needing_eye_detection = []

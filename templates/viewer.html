@@ -175,16 +175,11 @@
                     </button>
                 </div>
 
-                <!-- EXIF Filters Placeholder -->
-                <div class="control-group exif-filters-placeholder">
-                    <label>Filters:</label>
-                    <span class="placeholder-text">(EXIF filters will be added here)</span>
-                </div>
             </div>
 
             <div class="controls-right">
                 <div class="color-filter-section">
-                    <label class="filter-label">Color Filter:</label>
+                    <label class="filter-label">Filter:</label>
                     <div class="filter-buttons">
                         <button id="showAllFilterBtn" class="filter-btn show-all-btn active">
                             Show All
@@ -192,6 +187,10 @@
                         <div id="mainColorFilter" class="main-color-filter">
                             <!-- Color buttons will be created dynamically -->
                         </div>
+                        <!-- Eye detection filter button (shown only when eye detection is enabled) -->
+                        <button id="closedEyesFilterBtn" class="filter-btn eye-filter-btn" style="display: none;" title="Show only images with closed eyes">
+                            😑
+                        </button>
                     </div>
                     <div id="filterStatus" class="filter-status"></div>
                 </div>
